@@ -11,6 +11,7 @@ import Mathlib.Analysis.Real.Pi.Bounds
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Bounds
 import Mathlib.LinearAlgebra.Matrix.Charpoly.Minpoly
 import Mathlib.NumberTheory.Cyclotomic.Gal
+import Mathlib.NumberTheory.DiophantineApproximation.Basic
 import Mathlib.NumberTheory.NumberField.ClassNumber
 import Mathlib.NumberTheory.NumberField.Cyclotomic.Embeddings
 import Mathlib.RingTheory.Polynomial.RationalRoot
@@ -26,8 +27,9 @@ import Mathlib.Topology.Instances.AddCircle.DenseSubgroup
 
 Issue #7336 concerns the single-place estimate in the reconstruction of Theorem 7.3.3.4
 (pp. 360–363), with the coefficient change on p. 349. We verify the quartic prime data,
-the explicit phases and their pole-lattice behavior, and the mixed two-place estimate.
-The last estimate uses a cited classical input on three fixed logarithms.
+the explicit phases and their pole-lattice behavior, and a necessary bound for
+squared-height records. The mixed two-place estimate uses a cited classical input
+on three fixed logarithms.
 -/
 
 @[expose] public noncomputable section
@@ -1834,6 +1836,213 @@ theorem quarticBenchmark_shiftedExample :
   · exact ⟨quarticPhasePlus, by simp, hexample _ norm_quarticPhasePlus h⟩
   · exact ⟨quarticPhaseMinus, by simp, hexample _ norm_quarticPhaseMinus h⟩
 
+/-! ## Squared-height records -/
+
+private theorem norm_one_sub_exp_turn (x : ℝ) :
+    ‖1 - Complex.exp ((2 * Real.pi * Complex.I) * (x : ℂ))‖ =
+      2 * |Real.sin (Real.pi * x)| := by
+  have hx : (2 * (Real.pi : ℂ) * Complex.I) * (x : ℂ) =
+      Complex.I * ((2 * Real.pi * x : ℝ) : ℂ) := by
+    push_cast
+    ring
+  rw [norm_sub_rev, hx, Complex.norm_exp_I_mul_ofReal_sub_one, Real.norm_eq_abs, abs_mul,
+    abs_of_pos (by norm_num : (0 : ℝ) < 2), show 2 * Real.pi * x / 2 = Real.pi * x by ring]
+
+private theorem norm_one_sub_exp_turn_le (x : ℝ) :
+    ‖1 - Complex.exp ((2 * Real.pi * Complex.I) * (x : ℂ))‖ ≤ 2 * Real.pi * |x| := by
+  rw [norm_one_sub_exp_turn]
+  calc
+    _ ≤ 2 * |Real.pi * x| := mul_le_mul_of_nonneg_left Real.abs_sin_le_abs (by norm_num)
+    _ = _ := by rw [abs_mul, abs_of_pos Real.pi_pos, mul_assoc]
+
+private theorem norm_one_sub_exp_turn_eq_sin_abs {x : ℝ} (hx : |x| ≤ 1 / 2) :
+    ‖1 - Complex.exp ((2 * Real.pi * Complex.I) * (x : ℂ))‖ =
+      2 * Real.sin (Real.pi * |x|) := by
+  have hπ : |Real.pi * x| ≤ Real.pi := by
+    rw [abs_mul, abs_of_pos Real.pi_pos]
+    exact mul_le_of_le_one_right Real.pi_pos.le (hx.trans (by norm_num))
+  rw [norm_one_sub_exp_turn, Real.abs_sin_eq_sin_abs_of_abs_le_pi hπ, abs_mul,
+    abs_of_pos Real.pi_pos]
+
+private theorem norm_one_sub_exp_turn_mono {x y : ℝ} (hy : |y| ≤ 1 / 2) (hxy : |x| ≤ |y|) :
+    ‖1 - Complex.exp ((2 * Real.pi * Complex.I) * (x : ℂ))‖ ≤
+      ‖1 - Complex.exp ((2 * Real.pi * Complex.I) * (y : ℂ))‖ := by
+  rw [norm_one_sub_exp_turn_eq_sin_abs (hxy.trans hy), norm_one_sub_exp_turn_eq_sin_abs hy]
+  apply mul_le_mul_of_nonneg_left _ (by norm_num)
+  apply Real.sin_le_sin_of_le_of_le_pi_div_two
+  · linarith [Real.pi_pos, mul_nonneg Real.pi_pos.le (abs_nonneg x)]
+  · simpa only [mul_one_div] using mul_le_mul_of_nonneg_left hy Real.pi_pos.le
+  · exact mul_le_mul_of_nonneg_left hxy Real.pi_pos.le
+
+private theorem abs_add_or_sub_le_of_abs_le_two_mul {x y : ℝ} (hy : |y| ≤ 2 * |x|) :
+    |x + y| ≤ |x| ∨ |x - y| ≤ |x| := by
+  by_cases hx : 0 ≤ x
+  · rw [abs_of_nonneg hx] at hy ⊢
+    by_cases hy₀ : 0 ≤ y
+    · rw [abs_of_nonneg hy₀] at hy
+      exact Or.inr (abs_le.mpr ⟨by linarith, by linarith⟩)
+    · rw [abs_of_nonpos (le_of_not_ge hy₀)] at hy
+      exact Or.inl (abs_le.mpr ⟨by linarith, by linarith⟩)
+  · rw [abs_of_nonpos (le_of_not_ge hx)] at hy ⊢
+    by_cases hy₀ : 0 ≤ y
+    · rw [abs_of_nonneg hy₀] at hy
+      exact Or.inl (abs_le.mpr ⟨by linarith, by linarith⟩)
+    · rw [abs_of_nonpos (le_of_not_ge hy₀)] at hy
+      exact Or.inr (abs_le.mpr ⟨by linarith, by linarith⟩)
+
+private theorem norm_one_sub_exp_turn_signed_step {x y : ℝ}
+    (hx : |x| ≤ 1 / 2) (hy : |y| ≤ 2 * |x|) :
+    ‖1 - Complex.exp ((2 * Real.pi * Complex.I) * (↑(x + y) : ℂ))‖ ≤
+        ‖1 - Complex.exp ((2 * Real.pi * Complex.I) * (x : ℂ))‖ ∨
+      ‖1 - Complex.exp ((2 * Real.pi * Complex.I) * (↑(x - y) : ℂ))‖ ≤
+        ‖1 - Complex.exp ((2 * Real.pi * Complex.I) * (x : ℂ))‖ :=
+  (abs_add_or_sub_le_of_abs_le_two_mul hy).imp
+    (norm_one_sub_exp_turn_mono hx) (norm_one_sub_exp_turn_mono hx)
+
+private theorem exists_turn_of_norm_eq_one {z : ℂ} (hz : ‖z‖ = 1) :
+    ∃ x : ℝ, |x| ≤ 1 / 2 ∧ Complex.exp ((2 * Real.pi * Complex.I) * (x : ℂ)) = z := by
+  have hπ : 0 < 2 * Real.pi := by positivity
+  refine ⟨z.arg / (2 * Real.pi), ?_, ?_⟩
+  · rw [abs_div, abs_of_pos hπ, div_le_iff₀ hπ]
+    linarith [Complex.abs_arg_le_pi z]
+  · have harg : ((2 * Real.pi * Complex.I) * (↑(z.arg / (2 * Real.pi)) : ℂ)) =
+        (z.arg : ℂ) * Complex.I := by
+      push_cast
+      field_simp [Complex.ofReal_ne_zero.mpr Real.pi_ne_zero]
+    rw [harg]
+    simpa only [hz, Complex.ofReal_one, one_mul] using Complex.norm_mul_exp_arg_mul_I z
+
+private theorem quarticPoleValue_add_exp (a : ℂ) (n k p : ℤ) :
+    quarticPoleValue a (n + k) = quarticPoleValue a n *
+      Complex.exp ((2 * Real.pi * Complex.I) * (((p : ℝ) - (k : ℝ) * quarticLogRatio : ℝ) : ℂ)) := by
+  unfold quarticPoleValue
+  rw [zpow_add₀ (Circle.coe_ne_zero quarticRotation), ← mul_assoc]
+  congr 1
+  rw [quarticRotation_coe, ← Complex.exp_int_mul]
+  have he : (2 * Real.pi * Complex.I) * (((p : ℝ) - (k : ℝ) * quarticLogRatio : ℝ) : ℂ) =
+      (p : ℂ) * (2 * Real.pi * Complex.I) + (k : ℂ) * (-((quarticLogRatio : ℂ) * (2 * Real.pi * Complex.I))) := by
+    push_cast
+    ring
+  rw [he, Complex.exp_add, Complex.exp_int_mul_two_pi_mul_I, one_mul]
+
+private theorem quarticPoleValue_dirichlet {Q : ℕ} (hQ : 0 < Q) (a : ℂ) (n : ℤ) :
+    ∃ q : ℕ, 0 < q ∧ q ≤ Q ∧ ∃ y : ℝ, |y| ≤ 1 / ((Q : ℝ) + 1) ∧
+      quarticPoleValue a (n + q) =
+        quarticPoleValue a n * Complex.exp ((2 * Real.pi * Complex.I) * (-(y : ℂ))) ∧
+      quarticPoleValue a (n - q) =
+        quarticPoleValue a n * Complex.exp ((2 * Real.pi * Complex.I) * (y : ℂ)) := by
+  obtain ⟨q, hq, hqQ, hr⟩ := Real.exists_nat_abs_mul_sub_round_le quarticLogRatio hQ
+  let p : ℤ := round ((q : ℝ) * quarticLogRatio)
+  refine ⟨q, hq, hqQ, (q : ℝ) * quarticLogRatio - (p : ℝ), hr, ?_, ?_⟩
+  · rw [quarticPoleValue_add_exp a n q p]
+    push_cast
+    ring_nf
+  · rw [sub_eq_add_neg, quarticPoleValue_add_exp a n (-(q : ℤ)) (-p)]
+    push_cast
+    ring_nf
+
+/-- A quartic pole is a record when its outside Euler denominator is strictly smaller
+than at every other eligible center through squared height. -/
+def QuarticSquaredHeightRecord (a : ℂ) (n : ℤ) : Prop :=
+  QuarticEligible a n ∧ ∀ m : ℤ, m ≠ n → QuarticEligible a m →
+    2 + ‖quarticPoleHeight m‖ ≤ (2 + ‖quarticPoleHeight n‖) ^ 2 →
+    ‖1 - quarticPoleValue a n‖ < ‖1 - quarticPoleValue a m‖
+
+private theorem quarticPoleHeight_norm (n : ℤ) :
+    ‖quarticPoleHeight n‖ = (2 * Real.pi / Real.log 49) * |(n : ℝ)| := by
+  have hlog : 0 < Real.log 49 := Real.log_pos (by norm_num)
+  rw [quarticPoleHeight, norm_div, norm_mul, norm_mul, norm_mul, Complex.norm_intCast,
+    Complex.norm_ofNat, Complex.norm_real, Real.norm_eq_abs, abs_of_pos Real.pi_pos,
+    Complex.norm_I, mul_one, Complex.norm_real, Real.norm_eq_abs, abs_of_pos hlog]
+  ring
+
+/-- A nonzero squared-height record for a quartic phase with no clearing shift has
+Euler denominator strictly smaller than \(\log(49)/(2n^2)\). -/
+theorem quarticSquaredHeightRecord_bound (a : ℂ) (ha : ‖a‖ = 1) (hclear : ¬ QuarticCommonShift a)
+    (n : ℤ) (hn : n ≠ 0) (hr : QuarticSquaredHeightRecord a n) :
+    ‖1 - quarticPoleValue a n‖ < Real.log 49 / (2 * (n : ℝ) ^ 2) := by
+  let c := 2 * Real.pi / Real.log 49
+  -- The comparison window leaves room for this step in both directions.
+  let limit := c * (n : ℝ) ^ 2 + 3 * |(n : ℝ)| + 2 / c
+  let Q := ⌊limit⌋₊
+  have hlog : 0 < Real.log 49 := Real.log_pos (by norm_num)
+  have hc : 0 < c := div_pos (by positivity) hlog
+  have hnReal : (n : ℝ) ≠ 0 := by exact_mod_cast hn
+  have hnAbs : 1 ≤ |(n : ℝ)| := by exact_mod_cast Int.one_le_abs hn
+  have limit_ge_one : 1 ≤ limit := by
+    dsimp only [limit]
+    linarith [show 0 ≤ c * (n : ℝ) ^ 2 by positivity, show 0 ≤ 2 / c by positivity]
+  have hQ : 0 < Q := by
+    have hQ₁ : 1 ≤ Q := Nat.le_floor (by exact_mod_cast limit_ge_one)
+    omega
+  obtain ⟨q, hq, hqQ, y, hy, hplus, hminus⟩ := quarticPoleValue_dirichlet hQ a n
+  have hq_le : (q : ℝ) ≤ limit := (Nat.cast_le.mpr hqQ).trans
+    (Nat.floor_le (by linarith : 0 ≤ limit))
+  have hwindow (m : ℤ) (hm : |(m : ℝ)| ≤ |(n : ℝ)| + (q : ℝ)) :
+      2 + ‖quarticPoleHeight m‖ ≤ (2 + ‖quarticPoleHeight n‖) ^ 2 := by
+    rw [quarticPoleHeight_norm, quarticPoleHeight_norm]
+    change 2 + c * |(m : ℝ)| ≤ (2 + c * |(n : ℝ)|) ^ 2
+    calc
+      _ ≤ 2 + c * (|(n : ℝ)| + (q : ℝ)) := by gcongr
+      _ ≤ 2 + c * (|(n : ℝ)| + limit) := by gcongr
+      _ = _ := by
+        dsimp only [limit]
+        rw [← sq_abs (n : ℝ)]
+        have hdiv : c * (2 / c) = 2 := by
+          rw [← mul_div_assoc, mul_div_cancel_left₀ _ hc.ne']
+        linear_combination hdiv
+  have hwindowPlus : 2 + ‖quarticPoleHeight (n + q)‖ ≤ (2 + ‖quarticPoleHeight n‖) ^ 2 := by
+    apply hwindow
+    push_cast
+    simpa only [abs_of_nonneg (show 0 ≤ (q : ℝ) from Nat.cast_nonneg q)] using abs_add_le (n : ℝ) (q : ℝ)
+  have hwindowMinus : 2 + ‖quarticPoleHeight (n - q)‖ ≤ (2 + ‖quarticPoleHeight n‖) ^ 2 := by
+    apply hwindow
+    push_cast
+    simpa only [abs_of_nonneg (show 0 ≤ (q : ℝ) from Nat.cast_nonneg q)] using abs_sub (n : ℝ) (q : ℝ)
+  have hnorm : ‖quarticPoleValue a n‖ = 1 := by
+    simp [quarticPoleValue, ha, norm_zpow, Circle.norm_coe]
+  obtain ⟨x, hx, hxn⟩ := exists_turn_of_norm_eq_one hnorm
+  have hlt : ‖1 - quarticPoleValue a n‖ < 1 := by
+    have hp := norm_pos_iff.mpr (sub_ne_zero.mpr
+      (quarticPoleValue_ne_one_of_noCommonShift a hclear n).symm)
+    have h := hr.1
+    rwa [QuarticEligible, norm_inv, one_lt_inv₀ hp] at h
+  have hno (m : ℤ) (hm : m ≠ n) (hw : 2 + ‖quarticPoleHeight m‖ ≤ (2 + ‖quarticPoleHeight n‖) ^ 2)
+      (hle : ‖1 - quarticPoleValue a m‖ ≤ ‖1 - quarticPoleValue a n‖) : False := by
+    have hp := norm_pos_iff.mpr (sub_ne_zero.mpr
+      (quarticPoleValue_ne_one_of_noCommonShift a hclear m).symm)
+    have he : QuarticEligible a m := by
+      rw [QuarticEligible, norm_inv, one_lt_inv₀ hp]
+      exact hle.trans_lt hlt
+    exact (not_lt_of_ge hle) (hr.2 m hm he hw)
+  have hsmall : 2 * |x| < |y| := by
+    by_contra! h
+    rcases norm_one_sub_exp_turn_signed_step hx h with hcmp | hcmp
+    · apply hno (n - q) (by omega) hwindowMinus
+      rw [hminus, ← hxn, ← Complex.exp_add]
+      push_cast at hcmp
+      rw [mul_add] at hcmp
+      exact hcmp
+    · apply hno (n + q) (by omega) hwindowPlus
+      rw [hplus, ← hxn, ← Complex.exp_add]
+      push_cast at hcmp
+      simpa only [sub_eq_add_neg, mul_add, mul_neg] using hcmp
+  have hQbig : c * (n : ℝ) ^ 2 < (Q : ℝ) + 1 := by
+    refine lt_of_le_of_lt ?_ (Nat.lt_floor_add_one limit)
+    dsimp only [limit]
+    linarith [show 0 ≤ 3 * |(n : ℝ)| by positivity, show 0 ≤ 2 / c by positivity]
+  calc
+    _ ≤ 2 * Real.pi * |x| := by rw [← hxn]; exact norm_one_sub_exp_turn_le x
+    _ = Real.pi * (2 * |x|) := by ring
+    _ < Real.pi * (1 / ((Q : ℝ) + 1)) :=
+      mul_lt_mul_of_pos_left (hsmall.trans_le hy) Real.pi_pos
+    _ = Real.pi / ((Q : ℝ) + 1) := by ring
+    _ < Real.pi / (c * (n : ℝ) ^ 2) :=
+      div_lt_div_of_pos_left Real.pi_pos (mul_pos hc (sq_pos_of_ne_zero hnReal)) hQbig
+    _ = _ := by
+      dsimp [c]
+      field_simp [Real.pi_ne_zero, hlog.ne', hnReal]
+
 /-! ## Mixed chord estimate -/
 
 private theorem norm_one_sub_mul_le {x y : ℂ} (hx : ‖x‖ = 1) :
@@ -2344,6 +2553,50 @@ theorem quarticBenchmark_orbitalExample_of_localEulerProfiles
   · exact ⟨vMinus, by simp, hcheck vMinus (by simp) _ norm_quarticPhaseMinus h hMinus⟩
 
 end OrbitalIndices
+
+section OrbitalRecord
+
+variable {F : Type*} [Field F] [NumberField F]
+    {T P : Finset (IsDedekindDomain.HeightOneSpectrum (𝓞 F))}
+    {χ : PontryaginDual (sIdeleQuotientNorm F T).ker}
+
+local notation "I" => SLocalOrbitalIndex (S := T) P χ
+set_option quotPrecheck false in
+local notation "E(" v ", " k ")" => finiteLocalEulerFactor (v : T).val
+  (sLocalFiniteRestriction v (k : I).val.1)
+
+/-- A record among section orbital indices is a record on the quartic lattice whenever
+the lattice family supplies its eligible competitors and their uniformizer phases. -/
+theorem quarticSquaredHeightRecord_of_orbitalRecord
+    (v w : T) (τ : ℝ≥0ˣ →ₜ* SIdeleQuotient F T) (u : (v.val.adicCompletion F)ˣ)
+    (j : ℤ → I) (a : ℂ) (n : ℤ)
+    (hj : ∀ m, (j m).val.2 ≠ 0 ∧ w ∈ sLocalFinitePolePlaces (j m).val.1 ∧
+      (existsUnique_complexPower ((j m).val.1.comp τ)).exists.choose = quarticPoleHeight m ∧
+      E(v, j m) = (1 - quarticPoleValue a m)⁻¹ ∧
+      sLocalFiniteRestriction v (j m).val.1 u = quarticPoleValue a m)
+    (hr :
+      let A := {k : I | k.val.2 ≠ 0 ∧ w ∈ sLocalFinitePolePlaces k.val.1 ∧ 1 < ‖E(v, k)‖}
+      let t (k : I) := (existsUnique_complexPower (k.val.1.comp τ)).exists.choose
+      let z (k : I) := sLocalFiniteRestriction v k.val.1 u
+      j n ∈ A ∧ ∀ k ∈ A, k.val.1 ≠ (j n).val.1 →
+        2 + ‖t k‖ ≤ (2 + ‖t (j n)‖)^2 → ‖1 - z (j n)‖ < ‖1 - z k‖) :
+    QuarticSquaredHeightRecord a n := by
+  dsimp only at hr
+  refine ⟨?_, fun m hne hm hle ↦ ?_⟩
+  · have h := hr.1.2.2
+    rwa [(hj n).2.2.2.1] at h
+  · obtain ⟨hoff, hpole, hmHeight, hmEuler, hmPhase⟩ := hj m
+    obtain ⟨_, _, hnHeight, _, hnPhase⟩ := hj n
+    have hdistinct : (j m).val.1 ≠ (j n).val.1 := by
+      intro h
+      apply hne
+      apply quarticPoleHeight_injective
+      rw [← hmHeight, ← hnHeight, h]
+    have h := hr.2 (j m) ⟨hoff, hpole, by rwa [hmEuler]⟩ hdistinct (by
+      simpa only [hmHeight, hnHeight] using hle)
+    simpa only [hmPhase, hnPhase] using h
+
+end OrbitalRecord
 
 /-! ## Realization of the quartic benchmark -/
 
